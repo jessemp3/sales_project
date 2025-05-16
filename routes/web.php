@@ -5,6 +5,11 @@ require __DIR__.'/auth.php';
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SaleController;
 
+
+Route::get('/', function () {
+    return redirect()->route('register');
+});
+
 Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth'])->name('dashboard');
