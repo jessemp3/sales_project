@@ -95,4 +95,77 @@ class SaleController extends Controller
         $sale->load('client', 'user', 'items.product', 'installments');
         return view('sales.show', compact('sale'));
     }
+
+    public function edit($id)
+    {
+        $sale = Sale::with('items.product', 'installments')->findOrFail($id);
+        $clients = Client::all();
+        $products = Product::all();
+
+        // Garantir que as datas das parcelas são objetos Carbon
+        $sale->installments->transform(function ($installment) {
+            $installment->due_date = \Carbon\Carbon::parse($installment->due_date);
+            return $installment;
+        });
+
+        $existingProducts = $sale->items->map(function ($item) {
+            return [
+                'id' => $item->product->id,
+                'pivot' => [
+                    'quantity' => $item->quantity,
+                    'price' => $item->price,
+                ],
+            ];
+        });
+
+        return view('sales.edit', compact('sale', 'clients', 'products', 'existingProducts'));
+    }
+
+
+    public function update(Request $request, $id)
+    {
+        DB::beginTransaction();
+
+        $sale = Sale::findOrFail($id);
+
+        // Calcular total atualizado
+        $total = 0;
+        foreach ($request->products as $product) {
+            $total += $product['quantity'] * $product['price'];
+        }
+
+        // Atualizar dados da venda
+        $sale->update([
+            'client_id' => $request->client_id,
+            'payment_method' => $request->payment_method,
+            'total_amount' => $total,
+        ]);
+
+        // Apagar os itens e parcelas antigos para inserir os novos (simplificação)
+        $sale->items()->delete();
+        $sale->installments()->delete();
+
+        // Inserir itens atualizados
+        foreach ($request->products as $product) {
+            SaleItem::create([
+                'sale_id' => $sale->id,
+                'product_id' => $product['id'],
+                'quantity' => $product['quantity'],
+                'price' => $product['price'],
+            ]);
+        }
+
+        // Inserir parcelas atualizadas
+        foreach ($request->installments as $installment) {
+            Installment::create([
+                'sale_id' => $sale->id,
+                'due_date' => $installment['due_date'],
+                'amount' => $installment['amount'],
+            ]);
+        }
+
+        DB::commit();
+
+        return redirect()->route('sales.index')->with('success', 'Venda atualizada com sucesso!');
+    }
 }
